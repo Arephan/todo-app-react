@@ -1,4 +1,4 @@
-name: ReviewPal
+name: ReviewPuck
 
 on:
   issue_comment:
@@ -20,7 +20,7 @@ jobs:
       (github.event.pull_request && contains(github.event.comment.body, '?'))
     
     steps:
-      - name: Answer question with ReviewPal
+      - name: Answer question with ReviewPuck
         uses: actions/github-script@v7
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -111,7 +111,7 @@ jobs:
              * Post comment reply
              */
             async function postReply(github, context, prNumber, commentId, isLineComment, message) {
-              const body = `${message}\n\n<sub>💬 ReviewPal</sub>`;
+              const body = `${message}\n\n<sub>💬 ReviewPuck</sub>`;
               
               if (isLineComment) {
                 await github.rest.pulls.createReplyForReviewComment({
@@ -148,7 +148,7 @@ jobs:
                 commentId = context.payload.comment.id;
               }
               
-              console.log(`ReviewPal: Processing ${isLineComment ? 'inline' : 'general'} question on PR #${prNumber}`);
+              console.log(`ReviewPuck: Processing ${isLineComment ? 'inline' : 'general'} question on PR #${prNumber}`);
               
               // Fetch PR details
               const pr = await github.rest.pulls.get({
@@ -186,15 +186,15 @@ jobs:
               // Post reply
               await postReply(github, context, prNumber, commentId, isLineComment, answer);
               
-              console.log('ReviewPal: Successfully posted answer');
+              console.log('ReviewPuck: Successfully posted answer');
               
             } catch (error) {
-              console.error('ReviewPal error:', error.message);
+              console.error('ReviewPuck error:', error.message);
               
               // Try to post error message to user
               try {
                 const errorMsg = error.message.includes('ANTHROPIC_API_KEY')
-                  ? 'ReviewPal is not configured. Please add ANTHROPIC_API_KEY to repository secrets.'
+                  ? 'ReviewPuck is not configured. Please add ANTHROPIC_API_KEY to repository secrets.'
                   : 'Sorry, I encountered an error processing your question. Please try again.';
                 
                 await postReply(
