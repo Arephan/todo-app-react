@@ -1,0 +1,213 @@
+name: ReviewPal
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  pull-requests: write
+  issues: write
+  contents: read
+
+jobs:
+  answer:
+    name: Answer PR Question
+    runs-on: ubuntu-latest
+    if: |
+      (github.event.issue.pull_request && contains(github.event.comment.body, '?')) ||
+      (github.event.pull_request && contains(github.event.comment.body, '?'))
+    
+    steps:
+      - name: Answer question with ReviewPal
+        uses: actions/github-script@v7
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          script: |
+            const https = require('https');
+            
+            // Configuration
+            const CONFIG = {
+              model: 'claude-opus-4-20250514',
+              maxTokens: 1024,
+              maxFiles: 5,
+              timeoutMs: 30000,
+            };
+            
+            /**
+             * Call Anthropic API with error handling
+             */
+            function callAnthropic(prompt, apiKey) {
+              return new Promise((resolve, reject) => {
+                if (!apiKey) {
+                  reject(new Error('ANTHROPIC_API_KEY not configured'));
+                  return;
+                }
+                
+                const body = JSON.stringify({
+                  model: CONFIG.model,
+                  max_tokens: CONFIG.maxTokens,
+                  messages: [{ role: 'user', content: prompt }]
+                });
+                
+                const req = https.request({
+                  hostname: 'api.anthropic.com',
+                  path: '/v1/messages',
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01',
+                    'Content-Length': Buffer.byteLength(body)
+                  },
+                  timeout: CONFIG.timeoutMs
+                }, res => {
+                  let data = '';
+                  res.on('data', chunk => { data += chunk; });
+                  res.on('end', () => {
+                    try {
+                      const json = JSON.parse(data);
+                      if (json.error) {
+                        reject(new Error(json.error.message || 'API error'));
+                      } else if (json.content && json.content[0]) {
+                        resolve(json.content[0].text);
+                      } else {
+                        reject(new Error('Unexpected API response format'));
+                      }
+                    } catch (e) {
+                      reject(new Error(`Failed to parse response: ${e.message}`));
+                    }
+                  });
+                });
+                
+                req.on('error', err => reject(new Error(`Request failed: ${err.message}`)));
+                req.on('timeout', () => {
+                  req.destroy();
+                  reject(new Error('Request timed out'));
+                });
+                
+                req.write(body);
+                req.end();
+              });
+            }
+            
+            /**
+             * Build file context from PR diff
+             */
+            function buildFileContext(files) {
+              return files.data.slice(0, CONFIG.maxFiles).map(f => {
+                const status = f.status === 'added' ? 'new' : 
+                              f.status === 'removed' ? 'deleted' : 'modified';
+                const patch = f.patch || 'Binary file or no changes';
+                return `\n### ${f.filename} (${status})\n\`\`\`\n${patch}\n\`\`\``;
+              }).join('\n') + (files.data.length > CONFIG.maxFiles 
+                ? `\n\n... and ${files.data.length - CONFIG.maxFiles} more files`
+                : '');
+            }
+            
+            /**
+             * Post comment reply
+             */
+            async function postReply(github, context, prNumber, commentId, isLineComment, message) {
+              const body = `${message}\n\n<sub>💬 ReviewPal</sub>`;
+              
+              if (isLineComment) {
+                await github.rest.pulls.createReplyForReviewComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                  comment_id: commentId,
+                  body
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body
+                });
+              }
+            }
+            
+            // Main execution
+            try {
+              // Determine context from event type
+              let prNumber, question, isLineComment = false, lineInfo = '', commentId = null;
+              
+              if (context.eventName === 'pull_request_review_comment') {
+                prNumber = context.payload.pull_request.number;
+                question = context.payload.comment.body;
+                commentId = context.payload.comment.id;
+                isLineComment = true;
+                lineInfo = `\nFile: ${context.payload.comment.path}\nLine: ${context.payload.comment.line || context.payload.comment.original_line}\n`;
+              } else {
+                prNumber = context.issue.number;
+                question = context.payload.comment.body;
+                commentId = context.payload.comment.id;
+              }
+              
+              console.log(`ReviewPal: Processing ${isLineComment ? 'inline' : 'general'} question on PR #${prNumber}`);
+              
+              // Fetch PR details
+              const pr = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              });
+              
+              // Fetch PR files
+              const files = await github.rest.pulls.listFiles({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              });
+              
+              // Build context
+              const fileContext = buildFileContext(files);
+              const prompt = [
+                'Help a developer understand this Pull Request.',
+                '',
+                `PR: ${pr.data.title}`,
+                `Description: ${pr.data.body || 'No description provided'}`,
+                '',
+                `Files:${fileContext}`,
+                '',
+                lineInfo,
+                `Question: ${question}`,
+                '',
+                'Answer in 1-2 sentences. Be brief and helpful.'
+              ].join('\n');
+              
+              // Get answer from Claude
+              const answer = await callAnthropic(prompt, process.env.ANTHROPIC_API_KEY);
+              
+              // Post reply
+              await postReply(github, context, prNumber, commentId, isLineComment, answer);
+              
+              console.log('ReviewPal: Successfully posted answer');
+              
+            } catch (error) {
+              console.error('ReviewPal error:', error.message);
+              
+              // Try to post error message to user
+              try {
+                const errorMsg = error.message.includes('ANTHROPIC_API_KEY')
+                  ? 'ReviewPal is not configured. Please add ANTHROPIC_API_KEY to repository secrets.'
+                  : 'Sorry, I encountered an error processing your question. Please try again.';
+                
+                await postReply(
+                  github,
+                  context,
+                  prNumber || context.issue.number,
+                  commentId || context.payload.comment.id,
+                  isLineComment || false,
+                  errorMsg
+                );
+              } catch (replyError) {
+                console.error('Failed to post error message:', replyError.message);
+              }
+              
+              throw error;
+            }
