@@ -1,23 +1,13 @@
-# Todo App - React + TypeScript
+# Todo App React
 
-Simple todo app for testing the AI PR Helper workflow.
+A simple React todo app with ReviewPal integration.
 
-## Features
+## ReviewPal Setup
 
-- Add todos
-- Mark as complete
-- Delete todos
+This repo uses [ReviewPal](https://github.com/Arephan/reviewpal) to automatically review PRs for:
+- Excessive try-catch blocks
+- Too many useState hooks
+- High complexity
+- AI-generated code patterns
 
-## Testing AI PR Helper
-
-This repo has the AI PR Helper workflow installed. Try it out:
-
-1. Create a PR with changes
-2. Ask a question in the PR comments: `What does this PR do?`
-3. Or ask inline on specific code lines: `Why is this async?`
-
-The bot will respond automatically!
-
-## Setup
-
-Requires an `ANTHROPIC_API_KEY` secret in repo settings.
+See `.github/workflows/reviewpal.yml` for configuration.
