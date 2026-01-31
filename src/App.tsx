@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { TodoList } from './components/TodoList';
 import { AddTodo } from './components/AddTodo';
+import { TodoFilter, FilterType } from './components/TodoFilter';
 
 export interface Todo {
   id: number;
@@ -10,6 +11,7 @@ export interface Todo {
 
 export function App() {
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [filter, setFilter] = useState<FilterType>('all');
 
   const addTodo = (text: string) => {
     const newTodo: Todo = {
@@ -32,11 +34,23 @@ export function App() {
     setTodos(todos.filter((todo) => todo.id !== id));
   };
 
+  const getFilteredTodos = () => {
+    switch (filter) {
+      case 'active':
+        return todos.filter((todo) => !todo.completed);
+      case 'completed':
+        return todos.filter((todo) => todo.completed);
+      default:
+        return todos;
+    }
+  };
+
   return (
     <div className="app">
       <h1>Todo App</h1>
       <AddTodo onAdd={addTodo} />
-      <TodoList todos={todos} onToggle={toggleTodo} onDelete={deleteTodo} />
+      <TodoFilter currentFilter={filter} onFilterChange={setFilter} />
+      <TodoList todos={getFilteredTodos()} onToggle={toggleTodo} onDelete={deleteTodo} />
     </div>
   );
 }
