@@ -75,3 +75,4 @@ export const UserProfile: React.FC = () => {
     </div>
   );
 };
+// Fixed version
