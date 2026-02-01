@@ -60,7 +60,7 @@ export function useTodoFilters(todos: Todo[]) {
       // Filter by search query (case-insensitive)
       if (filters.searchQuery.trim()) {
         const query = filters.searchQuery.toLowerCase();
-        const title = todo.title.toLowerCase();
+        const title = todo.title?.toLowerCase() || '';
         if (!title.includes(query)) {
           return false;
         }
